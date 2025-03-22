@@ -60,7 +60,7 @@ export interface GameConfig {
   worldSeed: number;
 }
 
-// Input state
+// Input state for player controls
 export interface InputState {
   forward: boolean;
   backward: boolean;
@@ -74,4 +74,5 @@ export interface InputState {
   mouseDeltaX: number;
   mouseDeltaY: number;
   isPointerLocked: boolean;
+  wheelDelta: number; // For camera zoom control
 } 

@@ -53,18 +53,18 @@ export class ChickenModel {
     this.body.add(this.leftLeg);
     this.body.add(this.rightLeg);
     
-    // Add body to the model container
+    // Add the body to the model container
     this.modelContainer.add(this.body);
     
-    // Add model container to the main object
+    // Add the model container to the object
     this.object.add(this.modelContainer);
+    
+    // Scale down the entire chicken to make it smaller in relation to the cubes
+    this.object.scale.set(0.4, 0.4, 0.4);
     
     // Position model to have feet touch the ground
     // Adjust y offset to ensure chicken properly touches the ground
     this.object.position.set(0, BLOCK_SIZE * 0.5, 0);
-    
-    // Set scale to be appropriate for the game world
-    this.object.scale.set(0.5, 0.5, 0.5);
     
     // Default model orientation (facing forward/up, the -z direction)
     this.modelContainer.rotation.y = 0;

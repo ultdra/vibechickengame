@@ -2,7 +2,12 @@ import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { ChickenModel } from './chicken-model';
 import { InputState, PlayerState } from '../types';
-import { PLAYER_HEIGHT, PLAYER_WIDTH, PHYSICS_STEP, MAX_FALL_SPEED } from '../constants';
+import { 
+  PLAYER_HEIGHT, 
+  PLAYER_WIDTH, 
+  PHYSICS_STEP, 
+  MAX_FALL_SPEED
+} from '../constants';
 
 // Type for collision event
 interface CollideEvent {
@@ -29,28 +34,22 @@ export class PlayerController {
     this.object = new THREE.Group();
     this.model = new ChickenModel();
     
-    // Create a camera holder for third-person view
+    // Create a camera holder for rotation
     this.cameraHolder = new THREE.Group();
-    this.cameraHolder.position.set(0, PLAYER_HEIGHT * 0.8, 0);
     this.object.add(this.cameraHolder);
-    this.cameraHolder.add(camera);
-    
-    // Position the camera in third-person view (similar to Marvel screenshot)
-    camera.position.set(0, 2, 6); // Lower and further back for third-person view
-    camera.lookAt(0, 0, -3);
     
     // Add the chicken model to the player object
     this.object.add(this.model.object);
     
     // Initialize player state
     this.state = {
-      position: new THREE.Vector3(0, 10, 0), // Start position (y is up in the air)
+      position: new THREE.Vector3(0, 30, 0), // Start position
       rotation: new THREE.Euler(0, 0, 0),
       velocity: new THREE.Vector3(0, 0, 0),
       isJumping: false,
       isGrounded: false,
       health: 10,
-      speed: 5
+      speed: 15 // Speed for larger map
     };
     
     // Set up physics for the player
@@ -108,48 +107,47 @@ export class PlayerController {
   update(input: InputState, deltaTime: number): void {
     // Handle camera rotation with mouse (horizontal only)
     if (input.isPointerLocked) {
-      // Only rotate the camera holder horizontally (around y-axis)
       this.cameraHolder.rotation.y -= input.mouseDeltaX * 0.002;
     }
     
-    // Get forward and right directions based on model orientation
-    const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(this.object.quaternion);
-    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(this.object.quaternion);
+    // Get forward and right directions based on camera orientation
+    const cameraForward = new THREE.Vector3(0, 0, -1).applyQuaternion(this.cameraHolder.quaternion);
+    const cameraRight = new THREE.Vector3(1, 0, 0).applyQuaternion(this.cameraHolder.quaternion);
+    
+    // Project the vectors onto the xz plane and normalize them
+    cameraForward.y = 0;
+    cameraForward.normalize();
+    cameraRight.y = 0;
+    cameraRight.normalize();
     
     // Reset velocity before applying new forces
     const velocity = new THREE.Vector3();
     
-    // Apply movement based on input and rotate the player accordingly
+    // Apply movement based on input relative to camera view
     if (input.forward) {
-      velocity.add(forward.multiplyScalar(this.state.speed));
-      this.object.rotation.y = 0; // Face forward
+      velocity.add(cameraForward.clone().multiplyScalar(this.state.speed));
+      this.object.rotation.y = Math.atan2(-cameraForward.x, -cameraForward.z);
     }
     if (input.backward) {
-      velocity.add(forward.multiplyScalar(-this.state.speed));
-      this.object.rotation.y = Math.PI; // Face backward
+      velocity.add(cameraForward.clone().multiplyScalar(-this.state.speed));
+      this.object.rotation.y = Math.atan2(cameraForward.x, cameraForward.z);
     }
     if (input.left) {
-      velocity.add(right.multiplyScalar(-this.state.speed));
-      this.object.rotation.y = Math.PI * 0.5; // Face left
+      velocity.add(cameraRight.clone().multiplyScalar(-this.state.speed));
+      this.object.rotation.y = Math.atan2(cameraRight.x, cameraRight.z);
     }
     if (input.right) {
-      velocity.add(right.multiplyScalar(this.state.speed));
-      this.object.rotation.y = Math.PI * 1.5; // Face right
+      velocity.add(cameraRight.clone().multiplyScalar(this.state.speed));
+      this.object.rotation.y = Math.atan2(-cameraRight.x, -cameraRight.z);
     }
     
     // Handle diagonal movement
-    if (input.forward && input.right) {
-      this.object.rotation.y = Math.PI * 1.75; // Up-Right
-    } else if (input.right && input.backward) {
-      this.object.rotation.y = Math.PI * 1.25; // Down-Right
-    } else if (input.backward && input.left) {
-      this.object.rotation.y = Math.PI * 0.75; // Down-Left
-    } else if (input.left && input.forward) {
-      this.object.rotation.y = Math.PI * 0.25; // Up-Left
-    }
-    
-    // Normalize the velocity and scale it by speed
     if (velocity.length() > 0) {
+      if ((input.forward || input.backward) && (input.left || input.right)) {
+        this.object.rotation.y = Math.atan2(-velocity.x, -velocity.z);
+      }
+      
+      // Normalize the velocity and scale it by speed
       velocity.normalize().multiplyScalar(this.state.speed);
     }
     
@@ -163,11 +161,11 @@ export class PlayerController {
     }
     
     if (input.jump && this.isOnGround && this.jumpCooldown <= 0) {
-      this.physicsBody.velocity.y = 8; // Increased jump force
+      this.physicsBody.velocity.y = 24; // Jump force for larger map
       this.isOnGround = false;
       this.state.isJumping = true;
       this.state.isGrounded = false;
-      this.jumpCooldown = 0.3; // Set jump cooldown to prevent multiple jumps
+      this.jumpCooldown = 0.3; // Jump cooldown
     }
     
     // Update player state from physics
@@ -195,36 +193,28 @@ export class PlayerController {
     const isMoving = Math.abs(velocity.x) > 0.1 || Math.abs(velocity.z) > 0.1;
     this.model.animate(performance.now() / 1000, isMoving, this.state.velocity, input);
     
-    // Third-person camera following, like in the Marvel game screenshot
-    // Define camera follow parameters
-    const cameraDistance = 5; // Distance behind character
-    const cameraHeight = 2;   // Height above character
-    const lookAheadDistance = 3; // Look ahead of the character
+    // Simple third-person camera
+    // Position the camera behind the player at a fixed distance
+    const cameraDistance = 10;
+    const cameraHeight = 5;
     
-    // Create a smooth follow effect
-    const idealOffset = new THREE.Vector3();
-    idealOffset.set(
-      -Math.sin(this.object.rotation.y) * cameraDistance,
-      cameraHeight,
-      -Math.cos(this.object.rotation.y) * cameraDistance
+    // Calculate the camera position based on the player's position and cameraHolder rotation
+    const offset = new THREE.Vector3(0, cameraHeight, cameraDistance);
+    offset.applyAxisAngle(new THREE.Vector3(0, 1, 0), this.cameraHolder.rotation.y);
+    
+    // Position the camera
+    this.camera.position.set(
+      this.state.position.x + offset.x,
+      this.state.position.y + offset.y,
+      this.state.position.z + offset.z
     );
     
-    // Add player position to get world space position
-    idealOffset.add(this.state.position);
-    
-    // Smoothly interpolate camera position
-    const lerpFactor = 0.1; // Lower = smoother, higher = more responsive
-    this.camera.position.lerp(idealOffset, lerpFactor);
-    
-    // Calculate look target (slightly in front of the player)
-    const lookTarget = new THREE.Vector3();
-    lookTarget.set(
-      this.state.position.x + Math.sin(this.object.rotation.y) * lookAheadDistance,
-      this.state.position.y + 1, // Look at character's head level
-      this.state.position.z + Math.cos(this.object.rotation.y) * lookAheadDistance
+    // Look at the player (slightly above to see ahead)
+    const lookTarget = new THREE.Vector3(
+      this.state.position.x,
+      this.state.position.y + 2,
+      this.state.position.z
     );
-    
-    // Point the camera at the target
     this.camera.lookAt(lookTarget);
   }
   

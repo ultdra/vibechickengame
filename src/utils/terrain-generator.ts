@@ -5,7 +5,10 @@ import {
   TERRAIN_SCALE, 
   DIRT_DEPTH, 
   WATER_LEVEL,
-  TREE_DENSITY
+  TREE_DENSITY,
+  TERRAIN_THRESHOLD_1,
+  TERRAIN_THRESHOLD_2,
+  TERRAIN_THRESHOLD_3
 } from '../constants';
 
 // Simple noise implementation for terrain generation
@@ -145,19 +148,26 @@ export class TerrainGenerator {
   }
   
   private getHeightAt(x: number, z: number): number {
-    // Use multiple octaves of noise to create more interesting terrain
-    const scale1 = TERRAIN_SCALE;
-    const scale2 = TERRAIN_SCALE * 2;
-    const scale3 = TERRAIN_SCALE * 4;
+    // Use simplex noise to determine terrain elevation
+    const noiseValue = this.noise.noise(x * TERRAIN_SCALE, z * TERRAIN_SCALE);
     
-    // Get noise values at different scales
-    const noise1 = this.noise.noise(x * scale1, z * scale1);
-    const noise2 = this.noise.noise(x * scale2, z * scale2) * 0.5;
-    const noise3 = this.noise.noise(x * scale3, z * scale3) * 0.25;
+    // Convert noise from [-1,1] to [0,1] range
+    const normalizedNoise = (noiseValue + 1) * 0.5;
     
-    // Combine noise values and scale to get the final height
-    const combinedNoise = (noise1 + noise2 + noise3) * 0.6;
-    return Math.floor((combinedNoise + 1) * 0.5 * TERRAIN_AMPLITUDE);
+    // Apply discrete levels based on thresholds for 3-tier terrain (flat + 3 elevation levels)
+    if (normalizedNoise > TERRAIN_THRESHOLD_3) {
+      // Highest level (level 3)
+      return 3;
+    } else if (normalizedNoise > TERRAIN_THRESHOLD_2) {
+      // Medium level (level 2)
+      return 2;
+    } else if (normalizedNoise > TERRAIN_THRESHOLD_1) {
+      // Low level (level 1)
+      return 1;
+    } else {
+      // Base level (flat ground)
+      return 0;
+    }
   }
   
   private shouldGenerateTree(x: number, z: number): boolean {

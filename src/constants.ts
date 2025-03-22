@@ -11,8 +11,8 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   worldSeed: Math.floor(Math.random() * 1000000) // Random seed for world generation
 };
 
-// Block sizes
-export const BLOCK_SIZE = 1.0;
+// Game world constants
+export const BLOCK_SIZE = 6.0;
 export const HALF_BLOCK_SIZE = BLOCK_SIZE / 2;
 
 // Physics constants
@@ -26,20 +26,22 @@ export const PLAYER_EYE_HEIGHT = 1.6;
 export const PLAYER_CAMERA_HEIGHT = 1.7;
 
 // World generation constants
-export const TERRAIN_AMPLITUDE = 20;     // Maximum height variation
-export const TERRAIN_SCALE = 0.01;        // Scale of the noise
-export const DIRT_DEPTH = 5;              // How deep the dirt layer goes
-export const WATER_LEVEL = 8;             // Water level height
-export const TREE_DENSITY = 0.005;        // Chance of tree spawning per block
+export const TERRAIN_AMPLITUDE = 3;     // Reduced from 20 to 3 for fewer height levels
+export const TERRAIN_SCALE = 0.005;     // Reduced from 0.01 to create larger flat areas
+export const TERRAIN_THRESHOLD_1 = 0.3; // Threshold for first level elevation
+export const TERRAIN_THRESHOLD_2 = 0.6; // Threshold for second level elevation
+export const TERRAIN_THRESHOLD_3 = 0.8; // Threshold for third level elevation
+export const DIRT_DEPTH = 3;            // How deep the dirt layer goes
+export const WATER_LEVEL = 1;           // Lower water level for mostly flat terrain
+export const TREE_DENSITY = 0.003;      // Reduced tree density for cleaner landscape
 
 // Colors for different block types
 export const BLOCK_COLORS = {
-  GRASS_TOP: 0x3bbc3b,
-  GRASS_SIDE: 0x8b7834,
-  DIRT: 0x8b6914,
-  STONE: 0x888888,
-  WOOD: 0x6d4c41,
-  LEAVES: 0x388e3c,
+  GRASS: 0x4caf50,
+  DIRT: 0x795548,
+  STONE: 0x9e9e9e,
+  WOOD: 0x8d6e63,
+  LEAVES: 0x2e7d32,
   WATER: 0x1e88e5,
   SAND: 0xf9a825
 }; 
