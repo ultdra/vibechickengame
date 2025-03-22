@@ -6,8 +6,146 @@ import { InputManager } from '../utils/input-manager';
 import { TerrainGenerator } from '../utils/terrain-generator';
 import { ChunkRenderer } from '../utils/chunk-renderer';
 import { GameState, GameConfig, InputState } from '../types';
-import { PHYSICS_STEP, BLOCK_SIZE } from '../constants';
+import { PHYSICS_STEP, BLOCK_SIZE, BLOCK_COLORS } from '../constants';
 import { preloadBlockMaterials } from '../utils/texture-manager';
+
+// Add SimplexNoise class for terrain generation
+class SimplexNoise {
+  private grad3: number[][];
+  private p: number[];
+  private perm: number[];
+  private simplex: number[][];
+
+  constructor(seed = 0) {
+    this.grad3 = [
+      [1, 1, 0], [-1, 1, 0], [1, -1, 0], [-1, -1, 0],
+      [1, 0, 1], [-1, 0, 1], [1, 0, -1], [-1, 0, -1],
+      [0, 1, 1], [0, -1, 1], [0, 1, -1], [0, -1, -1]
+    ];
+
+    // Use the provided seed to initialize the random number generator
+    const r = {
+      random: () => {
+        seed = (seed * 9301 + 49297) % 233280;
+        return seed / 233280;
+      }
+    };
+
+    const l256 = 256;
+    
+    this.p = [];
+    for (let i = 0; i < l256; i++) {
+      this.p[i] = Math.floor(r.random() * 256);
+    }
+
+    this.perm = new Array(512);
+    this.simplex = [
+      [0, 1, 2, 3], [0, 1, 3, 2], [0, 0, 0, 0], [0, 2, 3, 1], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [1, 2, 3, 0],
+      [0, 2, 1, 3], [0, 0, 0, 0], [0, 3, 1, 2], [0, 3, 2, 1], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [1, 3, 2, 0],
+      [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0],
+      [1, 2, 0, 3], [0, 0, 0, 0], [1, 3, 0, 2], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [2, 3, 0, 1], [2, 3, 1, 0],
+      [1, 0, 2, 3], [1, 0, 3, 2], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [2, 0, 3, 1], [0, 0, 0, 0], [2, 1, 3, 0],
+      [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0],
+      [2, 0, 1, 3], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [3, 0, 1, 2], [3, 0, 2, 1], [0, 0, 0, 0], [3, 1, 2, 0],
+      [2, 1, 0, 3], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [3, 1, 0, 2], [0, 0, 0, 0], [3, 2, 0, 1], [3, 2, 1, 0]
+    ];
+
+    // Initialize permutation tables
+    for (let i = 0; i < 512; i++) {
+      this.perm[i] = this.p[i & 255];
+    }
+  }
+
+  private dot(g: number[], x: number, y: number): number {
+    return g[0] * x + g[1] * y;
+  }
+
+  // 2D simplex noise
+  noise(xin: number, yin: number): number {
+    let n0, n1, n2; // Noise contributions from the three corners
+    
+    // Skew the input space to determine which simplex cell we're in
+    const F2 = 0.5 * (Math.sqrt(3.0) - 1.0);
+    const s = (xin + yin) * F2; // Hairy factor for 2D
+    const i = Math.floor(xin + s);
+    const j = Math.floor(yin + s);
+    
+    const G2 = (3.0 - Math.sqrt(3.0)) / 6.0;
+    const t = (i + j) * G2;
+    const X0 = i - t; // Unskew the cell origin back to (x,y) space
+    const Y0 = j - t;
+    const x0 = xin - X0; // The x,y distances from the cell origin
+    const y0 = yin - Y0;
+    
+    // For the 2D case, the simplex shape is an equilateral triangle.
+    // Determine which simplex we are in.
+    let i1, j1; // Offsets for second (middle) corner of simplex in (i,j) coords
+    if (x0 > y0) {
+      i1 = 1;
+      j1 = 0;
+    } else { // lower triangle, XY order: (0,0)->(1,0)->(1,1)
+      i1 = 0;
+      j1 = 1;
+    } // upper triangle, YX order: (0,0)->(0,1)->(1,1)
+    
+    // A step of (1,0) in (i,j) means a step of (1-c,-c) in (x,y), and
+    // a step of (0,1) in (i,j) means a step of (-c,1-c) in (x,y), where
+    // c = (3-sqrt(3))/6
+    const x1 = x0 - i1 + G2; // Offsets for middle corner in (x,y) unskewed coords
+    const y1 = y0 - j1 + G2;
+    const x2 = x0 - 1.0 + 2.0 * G2; // Offsets for last corner in (x,y) unskewed coords
+    const y2 = y0 - 1.0 + 2.0 * G2;
+    
+    // Work out the hashed gradient indices of the three simplex corners
+    const ii = i & 255;
+    const jj = j & 255;
+    const gi0 = this.perm[ii + this.perm[jj]] % 12;
+    const gi1 = this.perm[ii + i1 + this.perm[jj + j1]] % 12;
+    const gi2 = this.perm[ii + 1 + this.perm[jj + 1]] % 12;
+    
+    // Calculate the contribution from the three corners
+    let t0 = 0.5 - x0 * x0 - y0 * y0;
+    if (t0 < 0) {
+      n0 = 0.0;
+    } else {
+      t0 *= t0;
+      n0 = t0 * t0 * this.dot(this.grad3[gi0], x0, y0); // (x,y) of grad3 used for 2D gradient
+    }
+    
+    let t1 = 0.5 - x1 * x1 - y1 * y1;
+    if (t1 < 0) {
+      n1 = 0.0;
+    } else {
+      t1 *= t1;
+      n1 = t1 * t1 * this.dot(this.grad3[gi1], x1, y1);
+    }
+    
+    let t2 = 0.5 - x2 * x2 - y2 * y2;
+    if (t2 < 0) {
+      n2 = 0.0;
+    } else {
+      t2 *= t2;
+      n2 = t2 * t2 * this.dot(this.grad3[gi2], x2, y2);
+    }
+    
+    // Add contributions from each corner to get the final noise value.
+    // The result is scaled to return values in the interval [-1,1].
+    return 70.0 * (n0 + n1 + n2);
+  }
+}
+
+// Extend TerrainGenerator to include getNoise method
+declare module '../utils/terrain-generator' {
+  interface TerrainGenerator {
+    getNoise(): SimplexNoise;
+  }
+}
+
+// Add getNoise method to TerrainGenerator prototype
+TerrainGenerator.prototype.getNoise = function() {
+  // Return a new SimplexNoise with a seed
+  return new SimplexNoise(Math.floor(Math.random() * 1000000));
+};
 
 export class GameScene {
   private scene: THREE.Scene;
@@ -183,21 +321,8 @@ export class GameScene {
     // Ground material for the physics world
     const groundMaterial = new CANNON.Material('groundMaterial');
     
-    // Create a flat ground plane (larger size to cover entire visible area)
-    const planeSize = 1000; // Increase the size to ensure full coverage
-    const planeGeometry = new THREE.PlaneGeometry(planeSize, planeSize);
-    const planeMaterial = new THREE.MeshLambertMaterial({ 
-      color: 0x4CAF50, // Slightly darker green for better grass appearance
-      side: THREE.DoubleSide,
-      flatShading: true, // Simple shading for better performance
-      shadowSide: THREE.FrontSide // Cast shadows from top side only
-    });
-    const planeMesh = new THREE.Mesh(planeGeometry, planeMaterial);
-    planeMesh.rotation.x = -Math.PI / 2; // Rotate to be horizontal
-    planeMesh.position.y = 0; // At ground level
-    planeMesh.receiveShadow = true;
-    planeMesh.name = "groundPlane"; // Name it for easy reference
-    this.scene.add(planeMesh);
+    // Remove the plane and create a cube-based environment
+    this.createCubeEnvironment(groundMaterial);
     
     // Contact material between player and ground
     const playerMaterial = new CANNON.Material('playerMaterial');
@@ -210,16 +335,168 @@ export class GameScene {
       }
     );
     this.physicsWorld.addContactMaterial(playerGroundContact);
+  }
+  
+  // Create a cube-based environment
+  private createCubeEnvironment(groundMaterial: CANNON.Material): void {
+    // Create a cube geometry to reuse
+    const cubeSize = BLOCK_SIZE;
+    const cubeGeometry = new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize);
     
-    // Create a physics body for the ground plane
-    const groundShape = new CANNON.Plane();
-    const groundBody = new CANNON.Body({
-      mass: 0, // Static body
+    // Create different materials for variety
+    const materials = {
+      grass: new THREE.MeshLambertMaterial({ color: BLOCK_COLORS.GRASS_TOP, flatShading: true }),
+      dirt: new THREE.MeshLambertMaterial({ color: BLOCK_COLORS.DIRT, flatShading: true }),
+      stone: new THREE.MeshLambertMaterial({ color: BLOCK_COLORS.STONE, flatShading: true }),
+      sand: new THREE.MeshLambertMaterial({ color: BLOCK_COLORS.SAND, flatShading: true }),
+      water: new THREE.MeshLambertMaterial({ 
+        color: BLOCK_COLORS.WATER, 
+        transparent: true, 
+        opacity: 0.8,
+        flatShading: true
+      })
+    };
+    
+    // Define the area size for the cube environment
+    const areaSize = 30; // Size of the area (30x30 blocks)
+    const centerOffset = Math.floor(areaSize / 2);
+    
+    // Use SimplexNoise for terrain height variation
+    const noise = this.terrainGenerator.getNoise();
+    
+    // Store cube bodies to avoid creating multiple physics objects at the same position
+    const cubePhysicsBodies: Record<string, boolean> = {};
+    
+    // Create a base layer of cubes and add variations
+    for (let x = -centerOffset; x < centerOffset; x++) {
+      for (let z = -centerOffset; z < centerOffset; z++) {
+        // Generate noise-based height (between 0 and 5)
+        const nx = x * 0.1;
+        const nz = z * 0.1;
+        const height = Math.floor(noise.noise(nx, nz) * 3 + 2); 
+        
+        // Create the terrain columns with different materials
+        for (let y = 0; y < height; y++) {
+          let material: THREE.Material;
+          
+          // Determine material based on height
+          if (y === height - 1) {
+            material = materials.grass; // Top layer is grass
+          } else if (y > height - 3) {
+            material = materials.dirt; // Next few layers are dirt
+          } else {
+            material = materials.stone; // Base is stone
+          }
+          
+          // Create a cube at this position
+          const cube = new THREE.Mesh(cubeGeometry, material);
+          cube.position.set(x * cubeSize, y * cubeSize, z * cubeSize);
+          cube.castShadow = true;
+          cube.receiveShadow = true;
+          this.scene.add(cube);
+          
+          // Create physics body for this cube (only for top block)
+          if (y === height - 1) {
+            const posKey = `${x},${y},${z}`;
+            if (!cubePhysicsBodies[posKey]) {
+              const cubeShape = new CANNON.Box(new CANNON.Vec3(
+                cubeSize * 0.5, 
+                cubeSize * 0.5, 
+                cubeSize * 0.5
+              ));
+              
+              const cubeBody = new CANNON.Body({
+                mass: 0, // Static body
+                material: groundMaterial,
+                shape: cubeShape
+              });
+              
+              cubeBody.position.set(
+                x * cubeSize, 
+                y * cubeSize, 
+                z * cubeSize
+              );
+              
+              this.physicsWorld.addBody(cubeBody);
+              cubePhysicsBodies[posKey] = true;
+            }
+          }
+        }
+        
+        // Randomly add water in low areas
+        if (height < 2 && Math.random() < 0.5) {
+          const waterCube = new THREE.Mesh(cubeGeometry, materials.water);
+          waterCube.position.set(x * cubeSize, height * cubeSize, z * cubeSize);
+          this.scene.add(waterCube);
+        }
+        
+        // Randomly add small hills or variations
+        if (Math.random() < 0.05) { // 5% chance
+          const extraHeight = Math.floor(Math.random() * 3) + 1;
+          for (let y = height; y < height + extraHeight; y++) {
+            // Add an extra block
+            const material = y === height + extraHeight - 1 ? materials.grass : materials.dirt;
+            const hillCube = new THREE.Mesh(cubeGeometry, material);
+            hillCube.position.set(x * cubeSize, y * cubeSize, z * cubeSize);
+            hillCube.castShadow = true;
+            hillCube.receiveShadow = true;
+            this.scene.add(hillCube);
+            
+            // Add physics for the top hill block
+            if (y === height + extraHeight - 1) {
+              const posKey = `${x},${y},${z}`;
+              if (!cubePhysicsBodies[posKey]) {
+                const cubeShape = new CANNON.Box(new CANNON.Vec3(
+                  cubeSize * 0.5, 
+                  cubeSize * 0.5, 
+                  cubeSize * 0.5
+                ));
+                
+                const cubeBody = new CANNON.Body({
+                  mass: 0, // Static body
+                  material: groundMaterial,
+                  shape: cubeShape
+                });
+                
+                cubeBody.position.set(
+                  x * cubeSize, 
+                  y * cubeSize, 
+                  z * cubeSize
+                );
+                
+                this.physicsWorld.addBody(cubeBody);
+                cubePhysicsBodies[posKey] = true;
+              }
+            }
+          }
+        }
+      }
+    }
+    
+    // Create a larger base underneath to catch falls
+    const baseSize = areaSize * 2;
+    const baseGeometry = new THREE.BoxGeometry(baseSize * cubeSize, cubeSize, baseSize * cubeSize);
+    const baseMaterial = new THREE.MeshLambertMaterial({ color: BLOCK_COLORS.STONE });
+    const baseMesh = new THREE.Mesh(baseGeometry, baseMaterial);
+    baseMesh.position.set(0, -cubeSize, 0);
+    baseMesh.receiveShadow = true;
+    this.scene.add(baseMesh);
+    
+    // Add physics for the base
+    const baseShape = new CANNON.Box(new CANNON.Vec3(
+      baseSize * cubeSize * 0.5, 
+      cubeSize * 0.5, 
+      baseSize * cubeSize * 0.5
+    ));
+    
+    const baseBody = new CANNON.Body({
+      mass: 0,
       material: groundMaterial,
-      shape: groundShape
+      shape: baseShape
     });
-    groundBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2); // Horizontal
-    this.physicsWorld.addBody(groundBody);
+    
+    baseBody.position.set(0, -cubeSize, 0);
+    this.physicsWorld.addBody(baseBody);
   }
   
   // Handle window resize
@@ -392,17 +669,8 @@ export class GameScene {
   }
   
   // Set up physics bodies for terrain
-  private async setupTerrainPhysics(): Promise<void> {
-    // Create a ground plane for the physics world
-    const groundShape = new CANNON.Plane();
-    const groundBody = new CANNON.Body({
-      mass: 0, // Static body
-      material: new CANNON.Material('groundMaterial')
-    });
-    groundBody.addShape(groundShape);
-    groundBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2); // Rotate to be flat
-    groundBody.position.set(0, -0.5, 0); // Set slightly below lowest terrain
-    this.physicsWorld.addBody(groundBody);
+  private setupTerrainPhysics(): Promise<void> {
+    return Promise.resolve(); // We don't need this anymore since we're using cube terrain
   }
   
   // Get height at a specific world position
@@ -503,4 +771,4 @@ export class GameScene {
     // you'd check against an actual list of loaded chunks
     return true; // Assume it exists for now - the chunk renderer will handle it
   }
-} 
+}

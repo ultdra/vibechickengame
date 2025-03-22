@@ -29,15 +29,15 @@ export class PlayerController {
     this.object = new THREE.Group();
     this.model = new ChickenModel();
     
-    // Create a camera holder for overhead view
+    // Create a camera holder for third-person view
     this.cameraHolder = new THREE.Group();
     this.cameraHolder.position.set(0, PLAYER_HEIGHT * 0.8, 0);
     this.object.add(this.cameraHolder);
     this.cameraHolder.add(camera);
     
-    // Position the camera higher up for a more top-down view (like in the diagram)
-    camera.position.set(0, 8, 6); // Higher up, less far back
-    camera.lookAt(0, 0, -2);
+    // Position the camera in third-person view (similar to Marvel screenshot)
+    camera.position.set(0, 2, 6); // Lower and further back for third-person view
+    camera.lookAt(0, 0, -3);
     
     // Add the chicken model to the player object
     this.object.add(this.model.object);
@@ -195,25 +195,37 @@ export class PlayerController {
     const isMoving = Math.abs(velocity.x) > 0.1 || Math.abs(velocity.z) > 0.1;
     this.model.animate(performance.now() / 1000, isMoving, this.state.velocity, input);
     
-    // Set camera to maintain the overhead view from diagram
-    // Offset values for higher angle view like in the diagram
-    const offsetHeight = 8; // Height above player
-    const offsetBack = 6;   // Distance behind player
+    // Third-person camera following, like in the Marvel game screenshot
+    // Define camera follow parameters
+    const cameraDistance = 5; // Distance behind character
+    const cameraHeight = 2;   // Height above character
+    const lookAheadDistance = 3; // Look ahead of the character
     
-    // Position camera directly behind and above the player
-    const cameraPos = new THREE.Vector3(
-      this.state.position.x,
-      this.state.position.y + offsetHeight,
-      this.state.position.z + offsetBack
+    // Create a smooth follow effect
+    const idealOffset = new THREE.Vector3();
+    idealOffset.set(
+      -Math.sin(this.object.rotation.y) * cameraDistance,
+      cameraHeight,
+      -Math.cos(this.object.rotation.y) * cameraDistance
     );
-    this.camera.position.copy(cameraPos);
     
-    // Look at the player from above
-    this.camera.lookAt(
-      this.state.position.x,
-      this.state.position.y,
-      this.state.position.z - 2 // Look slightly ahead of player
+    // Add player position to get world space position
+    idealOffset.add(this.state.position);
+    
+    // Smoothly interpolate camera position
+    const lerpFactor = 0.1; // Lower = smoother, higher = more responsive
+    this.camera.position.lerp(idealOffset, lerpFactor);
+    
+    // Calculate look target (slightly in front of the player)
+    const lookTarget = new THREE.Vector3();
+    lookTarget.set(
+      this.state.position.x + Math.sin(this.object.rotation.y) * lookAheadDistance,
+      this.state.position.y + 1, // Look at character's head level
+      this.state.position.z + Math.cos(this.object.rotation.y) * lookAheadDistance
     );
+    
+    // Point the camera at the target
+    this.camera.lookAt(lookTarget);
   }
   
   // Get the current player state
