@@ -345,7 +345,7 @@ export class GameScene {
     
     // Create different materials for variety
     const materials = {
-      grass: new THREE.MeshLambertMaterial({ color: BLOCK_COLORS.GRASS_TOP, flatShading: true }),
+      grass: new THREE.MeshLambertMaterial({ color: BLOCK_COLORS.GRASS, flatShading: true }),
       dirt: new THREE.MeshLambertMaterial({ color: BLOCK_COLORS.DIRT, flatShading: true }),
       stone: new THREE.MeshLambertMaterial({ color: BLOCK_COLORS.STONE, flatShading: true }),
       sand: new THREE.MeshLambertMaterial({ color: BLOCK_COLORS.SAND, flatShading: true }),

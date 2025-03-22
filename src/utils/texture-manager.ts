@@ -59,10 +59,21 @@ export function createBlockMaterials(blockType: BlockType): THREE.Material[] {
   
   switch (blockType) {
     case BlockType.GRASS:
+      // Use the same GRASS color for all faces, but darken for the sides
+      const grassColor = BLOCK_COLORS.GRASS;
       // Top face (grass top)
-      const grassTopTexture = createColorTexture(BLOCK_COLORS.GRASS_TOP);
-      // Side faces (grass side)
-      const grassSideTexture = createColorTexture(BLOCK_COLORS.GRASS_SIDE);
+      const grassTopTexture = createColorTexture(grassColor);
+      
+      // Side faces (grass side) - darken the color by 20%
+      const darkenFactor = 0.8; // 80% of the original brightness
+      const r = (grassColor >> 16) & 0xFF;
+      const g = (grassColor >> 8) & 0xFF;
+      const b = grassColor & 0xFF;
+      const grassSideColor = (Math.floor(r * darkenFactor) << 16) | 
+                             (Math.floor(g * darkenFactor) << 8) | 
+                             Math.floor(b * darkenFactor);
+      const grassSideTexture = createColorTexture(grassSideColor);
+      
       // Bottom face (dirt)
       const dirtTexture = createColorTexture(BLOCK_COLORS.DIRT);
       

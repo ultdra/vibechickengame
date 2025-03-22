@@ -21,22 +21,23 @@ export class PlayerController {
   readonly camera: THREE.PerspectiveCamera;
   readonly model: ChickenModel;
   
-  private physicsBody!: CANNON.Body; // Using definite assignment assertion
-  private cameraHolder: THREE.Group;
+  private physicsBody!: CANNON.Body;
   private state: PlayerState;
   private isOnGround: boolean;
   private jumpCooldown: number;
   private world: CANNON.World;
+  
+  // Camera settings
+  private cameraOffset: THREE.Vector3;
+  private cameraHeight: number = 10;
+  private cameraDistance: number = 20;
+  private cameraSmoothFactor: number = 0.1;
   
   constructor(camera: THREE.PerspectiveCamera, world: CANNON.World) {
     this.world = world;
     this.camera = camera;
     this.object = new THREE.Group();
     this.model = new ChickenModel();
-    
-    // Create a camera holder for rotation
-    this.cameraHolder = new THREE.Group();
-    this.object.add(this.cameraHolder);
     
     // Add the chicken model to the player object
     this.object.add(this.model.object);
@@ -52,12 +53,17 @@ export class PlayerController {
       speed: 15 // Speed for larger map
     };
     
+    // Set up camera offset
+    this.cameraOffset = new THREE.Vector3(0, this.cameraHeight, this.cameraDistance);
+    
     // Set up physics for the player
     this.setupPhysics();
     
     // Other initializations
     this.isOnGround = false;
     this.jumpCooldown = 0;
+    
+    console.log("PlayerController initialized");
   }
   
   // Set up the physics body for the player
@@ -101,59 +107,52 @@ export class PlayerController {
         this.state.isJumping = false;
       }
     });
+    
+    console.log("Physics set up, body position:", this.physicsBody.position);
   }
   
   // Update player based on input
   update(input: InputState, deltaTime: number): void {
-    // Handle camera rotation with mouse (horizontal only)
-    if (input.isPointerLocked) {
-      this.cameraHolder.rotation.y -= input.mouseDeltaX * 0.002;
-    }
+    // Calculate movement direction based on WASD keys
+    const directionZ = Number(input.backward) - Number(input.forward);
+    const directionX = Number(input.right) - Number(input.left);
     
-    // Get forward and right directions based on camera orientation
-    const cameraForward = new THREE.Vector3(0, 0, -1).applyQuaternion(this.cameraHolder.quaternion);
-    const cameraRight = new THREE.Vector3(1, 0, 0).applyQuaternion(this.cameraHolder.quaternion);
-    
-    // Project the vectors onto the xz plane and normalize them
-    cameraForward.y = 0;
-    cameraForward.normalize();
-    cameraRight.y = 0;
-    cameraRight.normalize();
-    
-    // Reset velocity before applying new forces
-    const velocity = new THREE.Vector3();
-    
-    // Apply movement based on input relative to camera view
-    if (input.forward) {
-      velocity.add(cameraForward.clone().multiplyScalar(this.state.speed));
-      this.object.rotation.y = Math.atan2(-cameraForward.x, -cameraForward.z);
-    }
-    if (input.backward) {
-      velocity.add(cameraForward.clone().multiplyScalar(-this.state.speed));
-      this.object.rotation.y = Math.atan2(cameraForward.x, cameraForward.z);
-    }
-    if (input.left) {
-      velocity.add(cameraRight.clone().multiplyScalar(-this.state.speed));
-      this.object.rotation.y = Math.atan2(cameraRight.x, cameraRight.z);
-    }
-    if (input.right) {
-      velocity.add(cameraRight.clone().multiplyScalar(this.state.speed));
-      this.object.rotation.y = Math.atan2(-cameraRight.x, -cameraRight.z);
-    }
-    
-    // Handle diagonal movement
-    if (velocity.length() > 0) {
-      if ((input.forward || input.backward) && (input.left || input.right)) {
-        this.object.rotation.y = Math.atan2(-velocity.x, -velocity.z);
+    // Only apply movement if we have input
+    if (directionX !== 0 || directionZ !== 0) {
+      // Create a movement vector that's aligned with camera view
+      const movement = new THREE.Vector3();
+      
+      // Forward/backward movement should go in the camera's forward/backward direction
+      // But we need to keep it on the XZ plane (no Y component)
+      const forward = new THREE.Vector3(0, 0, -1);
+      forward.applyQuaternion(this.camera.quaternion);
+      forward.y = 0; // Keep movement on the ground plane
+      forward.normalize();
+      
+      // Right/left movement should go in the camera's right/left direction
+      // But we need to keep it on the XZ plane (no Y component)
+      const right = new THREE.Vector3(1, 0, 0);
+      right.applyQuaternion(this.camera.quaternion);
+      right.y = 0; // Keep movement on the ground plane
+      right.normalize();
+      
+      // Combine the directions based on input
+      movement.addScaledVector(forward, -directionZ);
+      movement.addScaledVector(right, directionX);
+      
+      // Normalize and apply speed
+      if (movement.length() > 0) {
+        movement.normalize().multiplyScalar(this.state.speed);
       }
       
-      // Normalize the velocity and scale it by speed
-      velocity.normalize().multiplyScalar(this.state.speed);
+      // Apply the calculated velocity to the physics body
+      this.physicsBody.velocity.x = movement.x;
+      this.physicsBody.velocity.z = movement.z;
+    } else {
+      // No movement input, stop the player
+      this.physicsBody.velocity.x = 0;
+      this.physicsBody.velocity.z = 0;
     }
-    
-    // Set the horizontal velocity in the physics body
-    this.physicsBody.velocity.x = velocity.x;
-    this.physicsBody.velocity.z = velocity.z;
     
     // Handle jumping
     if (this.jumpCooldown > 0) {
@@ -189,33 +188,32 @@ export class PlayerController {
     // Update mesh position
     this.object.position.copy(this.state.position);
     
-    // Update the model
-    const isMoving = Math.abs(velocity.x) > 0.1 || Math.abs(velocity.z) > 0.1;
+    // Update the model animation
+    const isMoving = Math.abs(this.state.velocity.x) > 0.1 || Math.abs(this.state.velocity.z) > 0.1;
     this.model.animate(performance.now() / 1000, isMoving, this.state.velocity, input);
     
-    // Simple third-person camera
-    // Position the camera behind the player at a fixed distance
-    const cameraDistance = 10;
-    const cameraHeight = 5;
-    
-    // Calculate the camera position based on the player's position and cameraHolder rotation
-    const offset = new THREE.Vector3(0, cameraHeight, cameraDistance);
-    offset.applyAxisAngle(new THREE.Vector3(0, 1, 0), this.cameraHolder.rotation.y);
-    
-    // Position the camera
-    this.camera.position.set(
-      this.state.position.x + offset.x,
-      this.state.position.y + offset.y,
-      this.state.position.z + offset.z
+    // Update camera position
+    this.updateCamera(deltaTime);
+  }
+  
+  // Update camera to follow the player
+  private updateCamera(deltaTime: number): void {
+    // Calculate the target camera position (behind the player)
+    const targetCameraPos = new THREE.Vector3(
+      this.state.position.x,
+      this.state.position.y + this.cameraHeight,
+      this.state.position.z + this.cameraDistance
     );
     
-    // Look at the player (slightly above to see ahead)
-    const lookTarget = new THREE.Vector3(
+    // Smoothly move the camera toward the target position
+    this.camera.position.lerp(targetCameraPos, this.cameraSmoothFactor);
+    
+    // Look at the player
+    this.camera.lookAt(
       this.state.position.x,
-      this.state.position.y + 2,
+      this.state.position.y + 2, // Look slightly above the chicken
       this.state.position.z
     );
-    this.camera.lookAt(lookTarget);
   }
   
   // Get the current player state
@@ -227,5 +225,16 @@ export class PlayerController {
   setPosition(x: number, y: number, z: number): void {
     this.state.position.set(x, y, z);
     this.physicsBody.position.set(x, y, z);
+    
+    // Update the camera immediately to avoid a jarring jump
+    this.camera.position.set(
+      x,
+      y + this.cameraHeight,
+      z + this.cameraDistance
+    );
+    
+    this.camera.lookAt(x, y + 2, z);
+    
+    console.log("Player position set to:", x, y, z);
   }
 } 
