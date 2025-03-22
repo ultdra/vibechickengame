@@ -22,31 +22,21 @@ export class PlayerController {
   private isOnGround: boolean;
   private jumpCooldown: number;
   private world: CANNON.World;
-  private dustParticles: THREE.Points | null = null;
-  private dustGeometry: THREE.BufferGeometry | null = null;
-  private dustMaterial: THREE.PointsMaterial | null = null;
-  private particleCount: number = 50;
-  private particlePositions: Float32Array | null = null;
-  private particleOpacities: Float32Array | null = null;
-  private particleSizes: Float32Array | null = null;
-  private dustClock: THREE.Clock;
   
   constructor(camera: THREE.PerspectiveCamera, world: CANNON.World) {
     this.world = world;
     this.camera = camera;
     this.object = new THREE.Group();
     this.model = new ChickenModel();
-    this.dustClock = new THREE.Clock();
     
-    // Create a camera holder for fixed 45-degree angle view
+    // Create a camera holder for overhead view
     this.cameraHolder = new THREE.Group();
     this.cameraHolder.position.set(0, PLAYER_HEIGHT * 0.8, 0);
     this.object.add(this.cameraHolder);
     this.cameraHolder.add(camera);
     
-    // Position the camera at a 45-degree angle above and behind the player
-    // instead of slightly behind and above
-    camera.position.set(0, 5, 8);
+    // Position the camera higher up for a more top-down view (like in the diagram)
+    camera.position.set(0, 8, 6); // Higher up, less far back
     camera.lookAt(0, 0, -2);
     
     // Add the chicken model to the player object
@@ -65,9 +55,6 @@ export class PlayerController {
     
     // Set up physics for the player
     this.setupPhysics();
-    
-    // Set up dust particles
-    this.setupDustParticles();
     
     // Other initializations
     this.isOnGround = false;
@@ -117,121 +104,14 @@ export class PlayerController {
     });
   }
   
-  // Set up dust particles
-  private setupDustParticles(): void {
-    // Create particle geometry
-    this.dustGeometry = new THREE.BufferGeometry();
-    
-    // Create particle positions, opacities, and sizes
-    this.particlePositions = new Float32Array(this.particleCount * 3);
-    this.particleOpacities = new Float32Array(this.particleCount);
-    this.particleSizes = new Float32Array(this.particleCount);
-    
-    // Initialize particle positions and opacities
-    for (let i = 0; i < this.particleCount; i++) {
-      this.particlePositions[i * 3] = 0;     // x
-      this.particlePositions[i * 3 + 1] = 0; // y
-      this.particlePositions[i * 3 + 2] = 0; // z
-      this.particleOpacities[i] = 0;         // opacity (0 = invisible)
-      this.particleSizes[i] = Math.random() * 0.5 + 0.1; // random size
-    }
-    
-    // Set attributes
-    this.dustGeometry.setAttribute('position', new THREE.BufferAttribute(this.particlePositions, 3));
-    this.dustGeometry.setAttribute('opacity', new THREE.BufferAttribute(this.particleOpacities, 1));
-    this.dustGeometry.setAttribute('size', new THREE.BufferAttribute(this.particleSizes, 1));
-    
-    // Create particle material
-    this.dustMaterial = new THREE.PointsMaterial({
-      color: 0xCCCCCC,
-      size: 0.2,
-      transparent: true,
-      opacity: 0.6,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-      sizeAttenuation: true
-    });
-    
-    // Set particle vertex shader to use opacity attribute
-    this.dustMaterial.onBeforeCompile = (shader) => {
-      shader.vertexShader = shader.vertexShader.replace(
-        'void main() {',
-        `attribute float opacity;
-        attribute float size;
-        varying float vOpacity;
-        void main() {
-          vOpacity = opacity;`
-      );
-      
-      shader.vertexShader = shader.vertexShader.replace(
-        'gl_PointSize = size;',
-        'gl_PointSize = size * 10.0;'
-      );
-      
-      shader.fragmentShader = shader.fragmentShader.replace(
-        'void main() {',
-        `varying float vOpacity;
-        void main() {`
-      );
-      
-      shader.fragmentShader = shader.fragmentShader.replace(
-        'gl_FragColor = vec4( outgoingLight, diffuseColor.a );',
-        'gl_FragColor = vec4( outgoingLight, diffuseColor.a * vOpacity );'
-      );
-    };
-    
-    // Create particle system
-    this.dustParticles = new THREE.Points(this.dustGeometry, this.dustMaterial);
-    this.dustParticles.frustumCulled = false; // Ensure particles are always rendered
-    
-    // Add to scene
-    this.object.add(this.dustParticles);
-  }
-  
-  // Update dust particles
-  private updateDustParticles(isMoving: boolean, velocity: THREE.Vector3): void {
-    if (!this.dustGeometry || !this.particlePositions || !this.particleOpacities || !this.isOnGround) return;
-    
-    const deltaTime = this.dustClock.getDelta();
-    const positions = this.dustGeometry.attributes.position.array as Float32Array;
-    const opacities = this.dustGeometry.attributes.opacity.array as Float32Array;
-    
-    // Update each particle
-    for (let i = 0; i < this.particleCount; i++) {
-      // If moving and on ground, spawn new particles
-      if (isMoving && this.isOnGround && Math.random() < 0.1) {
-        // Position at player's feet, with some random offset
-        const offsetX = (Math.random() - 0.5) * 0.5;
-        const offsetZ = (Math.random() - 0.5) * 0.5;
-        
-        positions[i * 3] = offsetX;  // x
-        positions[i * 3 + 1] = 0.05; // y - slightly above ground
-        positions[i * 3 + 2] = offsetZ;  // z
-        
-        // Make the particle visible
-        opacities[i] = 0.8;
-      }
-      
-      // Fade out existing particles
-      if (opacities[i] > 0) {
-        // Move particles outward and upward
-        positions[i * 3] += (Math.random() - 0.5) * 0.1;     // x drift
-        positions[i * 3 + 1] += Math.random() * 0.05;        // y rise
-        positions[i * 3 + 2] += (Math.random() - 0.5) * 0.1; // z drift
-        
-        // Fade out
-        opacities[i] -= deltaTime * 2;
-        if (opacities[i] < 0) opacities[i] = 0;
-      }
-    }
-    
-    // Update attributes
-    this.dustGeometry.attributes.position.needsUpdate = true;
-    this.dustGeometry.attributes.opacity.needsUpdate = true;
-  }
-  
   // Update player based on input
   update(input: InputState, deltaTime: number): void {
+    // Handle camera rotation with mouse (horizontal only)
+    if (input.isPointerLocked) {
+      // Only rotate the camera holder horizontally (around y-axis)
+      this.cameraHolder.rotation.y -= input.mouseDeltaX * 0.002;
+    }
+    
     // Get forward and right directions based on model orientation
     const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(this.object.quaternion);
     const right = new THREE.Vector3(1, 0, 0).applyQuaternion(this.object.quaternion);
@@ -315,28 +195,25 @@ export class PlayerController {
     const isMoving = Math.abs(velocity.x) > 0.1 || Math.abs(velocity.z) > 0.1;
     this.model.animate(performance.now() / 1000, isMoving, this.state.velocity, input);
     
-    // Calculate camera position relative to player direction
-    // This ensures the camera stays behind the player as they move
-    const offsetDistance = 3; // Distance behind player
-    const cameraHeight = 2.5;  // Height above player
+    // Set camera to maintain the overhead view from diagram
+    // Offset values for higher angle view like in the diagram
+    const offsetHeight = 8; // Height above player
+    const offsetBack = 6;   // Distance behind player
     
-    // Calculate camera position based on player rotation
-    const cameraOffset = new THREE.Vector3(
-      -Math.sin(this.object.rotation.y) * offsetDistance,
-      cameraHeight,
-      -Math.cos(this.object.rotation.y) * offsetDistance
+    // Position camera directly behind and above the player
+    const cameraPos = new THREE.Vector3(
+      this.state.position.x,
+      this.state.position.y + offsetHeight,
+      this.state.position.z + offsetBack
     );
+    this.camera.position.copy(cameraPos);
     
-    // Set camera position relative to player
-    this.camera.position.copy(this.state.position).add(cameraOffset);
-    
-    // Look at player position plus a small forward offset (slightly ahead of the player)
-    const lookAtPosition = this.state.position.clone();
-    lookAtPosition.y += 1; // Look at head level
-    this.camera.lookAt(lookAtPosition);
-    
-    // Update dust particles
-    this.updateDustParticles(isMoving, velocity);
+    // Look at the player from above
+    this.camera.lookAt(
+      this.state.position.x,
+      this.state.position.y,
+      this.state.position.z - 2 // Look slightly ahead of player
+    );
   }
   
   // Get the current player state

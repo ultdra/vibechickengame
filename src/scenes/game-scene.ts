@@ -137,6 +137,21 @@ export class GameScene {
         this.scene.remove(obj);
       }
       
+      // Remove any HTML overlays or debug text
+      const skyTextElements = document.querySelectorAll('.debug-text, .text-overlay');
+      skyTextElements.forEach(element => {
+        console.log("Removing HTML text overlay:", element);
+        element.remove();
+      });
+      
+      // Try to find any DOM elements with "Sky" text content
+      document.querySelectorAll('div, span, p').forEach(el => {
+        if (el.textContent && el.textContent.includes('Sky')) {
+          console.log("Removing 'Sky' text element:", el);
+          el.remove();
+        }
+      });
+      
       // Force a scene update
       this.renderer.render(this.scene, this.camera);
     }, 100); // Short delay to ensure everything is loaded first
@@ -236,9 +251,23 @@ export class GameScene {
     
     // Traverse the scene and find any test objects
     this.scene.traverse((object) => {
-      // Look for any white cubes or test objects
-      if (object instanceof THREE.Mesh) {
-        // Check for large box geometries
+      // Look for any white cubes, sprites, or test objects
+      if (object instanceof THREE.Mesh || object instanceof THREE.Sprite) {
+        // Check for sprites (often used for debug text/labels)
+        if (object instanceof THREE.Sprite) {
+          console.log("Found sprite object (potential debug label):", object);
+          objectsToRemove.push(object);
+        }
+        
+        // Check for text geometries
+        if (object.geometry && 
+            (object.geometry.type === 'TextGeometry' || 
+             object.geometry.type === 'TextBufferGeometry')) {
+          console.log("Found text geometry:", object);
+          objectsToRemove.push(object);
+        }
+        
+        // Check for debug meshes (cubes, spheres, etc.)
         const geometry = object.geometry;
         
         // Check if it's a white material
@@ -252,8 +281,15 @@ export class GameScene {
             console.log("Found white material object:", object);
             objectsToRemove.push(object);
           }
+          
+          // Check for wireframe materials (often used for debugging)
+          if ((material as any).wireframe === true) {
+            console.log("Found wireframe object (likely debug):", object);
+            objectsToRemove.push(object);
+          }
         }
         
+        // Check for box geometries that are likely debug objects
         if (geometry instanceof THREE.BoxGeometry || 
             geometry instanceof THREE.BufferGeometry) {
           // Check if it's a large cube (the white box we see)
@@ -266,10 +302,12 @@ export class GameScene {
           }
         }
         
-        // Also check for any objects with "test", "debug", or "cube" in the name
+        // Also check for any objects with debug-related names
         if (object.name.includes('test') || 
             object.name.includes('debug') || 
-            object.name.includes('cube')) {
+            object.name.includes('cube') ||
+            object.name.includes('sprite') ||
+            object.name.includes('text')) {
           console.log("Found object with debug name:", object.name);
           objectsToRemove.push(object);
         }
@@ -278,7 +316,7 @@ export class GameScene {
     
     // Remove all identified objects
     for (const object of objectsToRemove) {
-      console.log(`Removing test object: ${object.name || 'unnamed'}`);
+      console.log(`Removing debug object: ${object.name || 'unnamed'}`);
       this.scene.remove(object);
       
       // Dispose of geometry and materials to free memory
@@ -294,6 +332,21 @@ export class GameScene {
         }
       }
     }
+    
+    // Additional search for any "Sky" text label
+    this.scene.traverse((object) => {
+      if (object.type === 'Group') {
+        object.children.forEach(child => {
+          if (child instanceof THREE.Sprite || child instanceof THREE.Mesh) {
+            if (child.name.includes('text') || child.name.includes('label') || 
+                child.name.includes('debug') || child.name.includes('sprite')) {
+              console.log("Removing label/text object:", child);
+              object.remove(child);
+            }
+          }
+        });
+      }
+    });
   }
   
   // Generate initial chunks around the player - made synchronous
