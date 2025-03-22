@@ -68,6 +68,7 @@ export interface InputState {
   right: boolean;
   jump: boolean;
   action: boolean;
+  peck: boolean;
   mouseX: number;
   mouseY: number;
   mouseDeltaX: number;

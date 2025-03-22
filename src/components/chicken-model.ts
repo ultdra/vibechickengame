@@ -59,8 +59,9 @@ export class ChickenModel {
     // Add model container to the main object
     this.object.add(this.modelContainer);
     
-    // Set initial position
-    this.object.position.set(0, BLOCK_SIZE * 1.5, 0);
+    // Position model to have feet touch the ground
+    // Adjust y offset to ensure chicken properly touches the ground
+    this.object.position.set(0, BLOCK_SIZE * 0.5, 0);
     
     // Set scale to be appropriate for the game world
     this.object.scale.set(0.5, 0.5, 0.5);
@@ -172,6 +173,17 @@ export class ChickenModel {
   
   // Animate the chicken for walking
   animate(time: number, isMoving: boolean, velocity: THREE.Vector3, inputState: any): void {
+    // Handle pecking animation
+    if (inputState.peck) {
+      // Peck animation - move the head forward and down
+      this.head.rotation.x = Math.PI / 4; // Tilt head down
+      this.head.position.z = -0.5 * BLOCK_SIZE; // Move head forward
+    } else {
+      // Reset head position when not pecking
+      this.head.rotation.x = 0;
+      this.head.position.z = -0.4 * BLOCK_SIZE; // Original position
+    }
+
     if (isMoving) {
         // Use input state directly instead of relying on velocity for direction
         const { forward, backward, left, right } = inputState;

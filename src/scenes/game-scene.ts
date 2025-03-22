@@ -95,6 +95,51 @@ export class GameScene {
     
     // Initialize the game immediately
     this.initializeGame();
+    
+    // Remove specific object - find by searching directly after everything is loaded
+    setTimeout(() => {
+      // Final cleanup to remove any debug objects
+      this.cleanupTestObjects();
+      
+      // AGGRESSIVE APPROACH: Look through all scene children and remove any suspect objects
+      const toRemove = [];
+      for (let i = 0; i < this.scene.children.length; i++) {
+        const object = this.scene.children[i];
+        
+        // Remove any white box geometry directly
+        if (object instanceof THREE.Mesh) {
+          // Check if it's a cube/box and large
+          const isBox = object.geometry instanceof THREE.BoxGeometry ||
+                       (object.geometry.type && object.geometry.type.includes('Box'));
+          
+          const isLarge = isBox && object.scale.x > 5; 
+          
+          // Check if it's white or very light colored
+          let isWhite = false;
+          
+          if (object.material) {
+            if (object.material instanceof THREE.MeshBasicMaterial && object.material.color) {
+              const color = object.material.color.getHex();
+              isWhite = color > 0xf0f0f0;
+            }
+          }
+          
+          // Force remove any large, white box
+          if ((isLarge || isWhite) && object.name !== "groundPlane") {
+            console.log("Found suspect object to remove:", object);
+            toRemove.push(object);
+          }
+        }
+      }
+      
+      // Remove all found objects
+      for (const obj of toRemove) {
+        this.scene.remove(obj);
+      }
+      
+      // Force a scene update
+      this.renderer.render(this.scene, this.camera);
+    }, 100); // Short delay to ensure everything is loaded first
   }
   
   // Set up lights in the scene
@@ -123,6 +168,22 @@ export class GameScene {
     // Ground material for the physics world
     const groundMaterial = new CANNON.Material('groundMaterial');
     
+    // Create a flat ground plane (larger size to cover entire visible area)
+    const planeSize = 1000; // Increase the size to ensure full coverage
+    const planeGeometry = new THREE.PlaneGeometry(planeSize, planeSize);
+    const planeMaterial = new THREE.MeshLambertMaterial({ 
+      color: 0x4CAF50, // Slightly darker green for better grass appearance
+      side: THREE.DoubleSide,
+      flatShading: true, // Simple shading for better performance
+      shadowSide: THREE.FrontSide // Cast shadows from top side only
+    });
+    const planeMesh = new THREE.Mesh(planeGeometry, planeMaterial);
+    planeMesh.rotation.x = -Math.PI / 2; // Rotate to be horizontal
+    planeMesh.position.y = 0; // At ground level
+    planeMesh.receiveShadow = true;
+    planeMesh.name = "groundPlane"; // Name it for easy reference
+    this.scene.add(planeMesh);
+    
     // Contact material between player and ground
     const playerMaterial = new CANNON.Material('playerMaterial');
     const playerGroundContact = new CANNON.ContactMaterial(
@@ -134,6 +195,16 @@ export class GameScene {
       }
     );
     this.physicsWorld.addContactMaterial(playerGroundContact);
+    
+    // Create a physics body for the ground plane
+    const groundShape = new CANNON.Plane();
+    const groundBody = new CANNON.Body({
+      mass: 0, // Static body
+      material: groundMaterial,
+      shape: groundShape
+    });
+    groundBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2); // Horizontal
+    this.physicsWorld.addBody(groundBody);
   }
   
   // Handle window resize
@@ -153,6 +224,76 @@ export class GameScene {
     
     // Set up terrain physics
     this.setupTerrainPhysics();
+    
+    // Remove any test objects or debug elements
+    this.cleanupTestObjects();
+  }
+  
+  // Clean up any test objects or debug elements
+  private cleanupTestObjects(): void {
+    // Create a list to hold objects that should be removed
+    const objectsToRemove: THREE.Object3D[] = [];
+    
+    // Traverse the scene and find any test objects
+    this.scene.traverse((object) => {
+      // Look for any white cubes or test objects
+      if (object instanceof THREE.Mesh) {
+        // Check for large box geometries
+        const geometry = object.geometry;
+        
+        // Check if it's a white material
+        if (object.material) {
+          const material = object.material as THREE.Material;
+          
+          // Check if it has a white or very light color
+          if (material instanceof THREE.MeshBasicMaterial && 
+              material.color && 
+              (material.color.getHex() === 0xffffff || material.color.getHex() > 0xf0f0f0)) {
+            console.log("Found white material object:", object);
+            objectsToRemove.push(object);
+          }
+        }
+        
+        if (geometry instanceof THREE.BoxGeometry || 
+            geometry instanceof THREE.BufferGeometry) {
+          // Check if it's a large cube (the white box we see)
+          if (geometry instanceof THREE.BoxGeometry && 
+              geometry.parameters.width >= 10 && 
+              geometry.parameters.height >= 10 && 
+              geometry.parameters.depth >= 10) {
+            console.log("Found large box geometry:", object);
+            objectsToRemove.push(object);
+          }
+        }
+        
+        // Also check for any objects with "test", "debug", or "cube" in the name
+        if (object.name.includes('test') || 
+            object.name.includes('debug') || 
+            object.name.includes('cube')) {
+          console.log("Found object with debug name:", object.name);
+          objectsToRemove.push(object);
+        }
+      }
+    });
+    
+    // Remove all identified objects
+    for (const object of objectsToRemove) {
+      console.log(`Removing test object: ${object.name || 'unnamed'}`);
+      this.scene.remove(object);
+      
+      // Dispose of geometry and materials to free memory
+      if (object instanceof THREE.Mesh) {
+        if (object.geometry) object.geometry.dispose();
+        
+        if (object.material) {
+          if (Array.isArray(object.material)) {
+            object.material.forEach(material => material.dispose());
+          } else {
+            object.material.dispose();
+          }
+        }
+      }
+    }
   }
   
   // Generate initial chunks around the player - made synchronous

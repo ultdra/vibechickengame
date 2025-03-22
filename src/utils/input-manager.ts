@@ -21,6 +21,7 @@ export class InputManager {
       right: false,
       jump: false,
       action: false,
+      peck: false,
       mouseX: 0,
       mouseY: 0,
       mouseDeltaX: 0,
@@ -112,6 +113,9 @@ export class InputManager {
         break;
       case 'KeyE':
         this.inputState.action = isDown;
+        break;
+      case 'KeyF':
+        this.inputState.peck = isDown;
         break;
     }
   }
